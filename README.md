@@ -1,4 +1,50 @@
-# LAST LIGHT / 最后灯火
+# LAST LIGHT / 最后灯火 — 第三人称跨肩射击
+
+当前默认入口是 **Godot 4.6.3 的 3D 射击靶场**，对应第一阶段的移动、镜头和射击手感验证。无需插件或外部模型下载。原有 2D 原型完整保留在 `main.tscn`。
+
+### 下载试玩
+
+- [Windows 64 位免安装试玩包](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-Windows-x64.zip)：完整解压，保持 EXE 和 PCK 在同一个目录，双击 `LastLight.exe`，按 Enter 开始。
+- [完整 Godot 项目 ZIP](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-Godot-Project.zip)：解压后使用 Godot 4.6.3 导入 `project.godot`。
+- [SHA-256 校验值](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/SHA256SUMS.txt)。
+
+Windows 包已经导出，导出的资源包通过 41 项玩法测试；尚未在 Windows 实机试玩。当前内容是程序化占位角色与射击靶场，尚未加入丧尸 AI。
+
+```sh
+./run.sh                         # 启动新的 3D 靶场，需要图形显示
+./run.sh res://main.tscn         # 启动原有 2D 原型
+./run.sh --headless --script tests/tps_test.gd
+```
+
+也可以用 Godot 4.6.3 打开 `project.godot`，按 F5 启动；Enter 进入靶场。
+
+![3D 射击靶场](docs/tps-range.png)
+
+| 操作 | 按键 |
+| --- | --- |
+| 移动 / 冲刺 / 跳跃 | WASD / Shift / Space |
+| 转动视角 / 瞄准 / 全自动射击 | 鼠标移动 / 右键 / 左键 |
+| 左右换肩 / 换弹 | Q / R |
+| 重置训练统计、靶标和弹药 | T |
+| 暂停并释放鼠标 / 恢复 | Esc / Enter 或 Esc |
+| 静音 | M |
+
+第一阶段已实现：
+
+- 带加减速的胶囊体角色移动、冲刺与跳跃，真实掩体和场地碰撞。
+- 平滑左右换肩、瞄准拉近镜头和缩小视野、俯仰限制、后方球体避障和侧向碰撞扫掠。
+- 从准星确定瞄准点，再从真实枪口检测命中；身体到枪口的额外检测阻止穿墙射击。镜头能看到目标时，枪口仍可能被掩体挡住。
+- 24 发全自动步枪、有限备用弹药、换弹、射速限制、镜头后坐力、持续开火扩散和恢复。
+- 六个可复位靶标，其中一个左右移动；身体三枪、头部一枪击倒，附带枪口火焰、曳光、命中闪光与合成音效。
+- 六靶训练目标、计时、命中率、爆头和击倒统计、暂停及失焦自动暂停。
+
+角色、动作和场景均为程序化占位内容；当前 3D 靶场没有丧尸 AI、正式美少女角色模型、动画资源、剧情或独立安装包。后续先进行人工手感评估，再进入丧尸战斗阶段。
+
+开发与验证细节见 [第一阶段说明](docs/phase-one.md)。
+
+---
+
+## 原有 2D 横版原型
 
 丧尸末日题材的 2D 横版射击原型，使用 **Godot 4.6.3** 开发。无第三方插件、无联网服务、无运行时下载。建议使用相同版本的 Godot；项目采用 GL Compatibility 渲染器。
 

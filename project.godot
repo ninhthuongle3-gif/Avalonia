@@ -3,9 +3,9 @@ config_version=5
 
 [application]
 config/name="LAST LIGHT · Quarantine"
-run/main_scene="res://main.tscn"
+run/main_scene="res://scenes/range.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
-config/description="A tactile, single-player 2D quarantine survival prototype."
+config/description="Third-person over-the-shoulder live-fire range. Includes the original 2D prototype."
 
 [display]
 window/size/viewport_width=1440
