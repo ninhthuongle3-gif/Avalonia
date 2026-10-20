@@ -67,14 +67,14 @@ func draw_menu():
 	label_at(Vector2(397, 660), "[ ENTER ]", 14, MUTED)
 	line(Vector2(88, 722), Vector2(568, 722), Color("435451"))
 	label_at(Vector2(88, 756), "A / D  MOVE       MOUSE  AIM       LMB  FIRE", 13, MUTED)
-	label_at(Vector2(88, 783), "RMB  SHIELD       R  RELOAD       SPACE  JUMP", 13, MUTED)
+	label_at(Vector2(88, 783), "RMB  SHIELD       1 / 2  WEAPON       R  RELOAD", 13, MUTED)
 	label_at(Vector2(88, 842), "01 / FIELD TEST", 12, AMBER)
-	label_at(Vector2(1110, 842), "GODOT 4  /  ORIGINAL ART", 12, MUTED)
+	label_at(Vector2(1060, 842), "GODOT 4  /  GENERATED CUTOUT ART", 12, MUTED)
 	# Right-side diegetic field annotation.
 	line(Vector2(1054, 543), Vector2(1098, 510), AMBER)
 	line(Vector2(1098, 510), Vector2(1310, 510), AMBER)
 	label_at(Vector2(1110, 493), "OPERATOR / WHITE ASH", 13, IVORY)
-	label_at(Vector2(1110, 535), "RIFLE + BALLISTIC SHIELD", 11, MUTED)
+	label_at(Vector2(1110, 535), "RIFLE / SIDEARM / SHIELD", 11, MUTED)
 	label_at(Vector2(1142, 90), "SECTOR 07", 17, IVORY, true)
 	label_at(Vector2(1142, 115), "02:17  /  SIGNAL LOST", 12, AMBER)
 
@@ -102,14 +102,18 @@ func draw_ingame():
 	draw_rect(Rect2(65, 820, 302 * game.health / 100, 6), RED if game.health < 30 else Color("abb9a3"))
 	draw_rect(Rect2(65, 838, 302, 3), Color("263c40"))
 	draw_rect(Rect2(65, 838, 302 * game.stamina / 100, 3), AMBER)
-	# Weapon module. Ammunition is finite per magazine, reserve is deliberately infinite.
+	# Weapon module. Both weapons keep independent magazines.
+	var config = game.weapon_config()
 	panel(Rect2(1100, 766, 294, 94))
-	label_at(Vector2(1120, 792), "AR-07  /  5.56", 13, MUTED)
+	label_at(Vector2(1120, 792), "%s  /  %s" % [config.name, config.caliber], 13, MUTED)
 	label_at(Vector2(1120, 837), "%02d" % game.ammo, 39, AMBER if game.ammo < 6 else IVORY, true)
-	label_at(Vector2(1187, 835), "/  24", 18, MUTED)
-	label_at(Vector2(1272, 827), "AUTO", 14, AMBER)
-	label_at(Vector2(1272, 846), "RESERVE  INF", 10, MUTED)
-	label_at(Vector2(465, 846), "R  RELOAD   /   RMB  SHIELD   /   F1  CONTROLS   /   ESC  PAUSE", 12, MUTED)
+	label_at(Vector2(1187, 835), "/  %02d" % config.magazine, 18, MUTED)
+	label_at(Vector2(1272, 820), config.mode, 14, AMBER)
+	label_at(Vector2(1272, 838), "SKILL  %d / 5" % game.weapon_skill_level(), 10, IVORY)
+	label_at(Vector2(1272, 852), "RESERVE  INF", 9, MUTED)
+	label_at(Vector2(465, 846), "1 RIFLE   /   2 PISTOL   /   Q SWITCH   /   R RELOAD   /   F1 CONTROLS", 12, MUTED)
+	label_at(Vector2(1110, 747), "1  AR-07", 10, AMBER if game.weapon_kind == "rifle" else MUTED)
+	label_at(Vector2(1182, 747), "2  P-9", 10, AMBER if game.weapon_kind == "pistol" else MUTED)
 	# Front/back threat arrows are visible before an enemy enters the view.
 	for e in game.enemies:
 		if e.hp <= 0:
@@ -125,7 +129,7 @@ func draw_ingame():
 		var py = game.player.position.y - 185
 		label_at(Vector2(px - 40, py - 12), "RELOADING", 11, AMBER)
 		draw_rect(Rect2(px - 40, py, 80, 3), Color("263c40"))
-		draw_rect(Rect2(px - 40, py, 80 * (1 - game.reload_timer / game.RELOAD_TIME), 3), AMBER)
+		draw_rect(Rect2(px - 40, py, 80 * (1 - game.reload_timer / game.current_reload_time()), 3), AMBER)
 	if game.player.shielding:
 		label_at(Vector2(game.player.position.x - game.camera_x - 39, game.player.position.y - 185), "GUARDING", 11, AMBER)
 	if game.wave_banner > 0:
@@ -143,8 +147,9 @@ func draw_ingame():
 		label_at(Vector2(45, 733), "AUDIO MUTED", 10, MUTED)
 
 func draw_reticle():
-	var pos = game.aim_world - Vector2(game.camera_x, 0)
-	var gap = 6 + game.shot_spread * 200
+	var requested = game.aim_world - Vector2(game.camera_x, 0)
+	var pos = game.actual_aim_world() - Vector2(game.camera_x, 0)
+	var gap = 6 + game.shot_spread * 430
 	var color = AMBER if game.player.shielding else IVORY
 	if game.reload_timer > 0:
 		color = MUTED
@@ -152,6 +157,9 @@ func draw_reticle():
 		line(pos + axis * gap, pos + axis * (gap + 7), Color("101d22"), 4)
 		line(pos + axis * gap, pos + axis * (gap + 7), color, 1.3)
 	draw_circle(pos, 1.3, color)
+	if game.recoil_pitch > 0.012:
+		draw_circle(requested, 3.0, Color(0.55, 0.62, 0.59, 0.35), false, 1)
+		line(requested, pos, Color(0.83, 0.68, 0.44, 0.25), 1)
 	if game.hit_marker > 0:
 		var hit_color = AMBER if game.head_marker else IVORY
 		for i in range(4):
@@ -163,12 +171,12 @@ func draw_pause():
 	draw_rect(Rect2(0, 0, 1440, 900), Color(0.02, 0.05, 0.065, 0.85))
 	label_at(Vector2(470, 225), "FIELD MANUAL" if game.help_open else "TAKE A BREATH.", 42, IVORY, true)
 	line(Vector2(470, 250), Vector2(970, 250), AMBER)
-	var rows = [["A / D  or  ARROWS", "Move"], ["MOUSE / LEFT CLICK", "Aim / automatic fire"], ["RIGHT CLICK", "Hold ballistic shield (front only)"], ["R / SPACE / SHIFT", "Reload / jump / sprint"], ["M / V", "Mute / reduced motion"], ["F1 / ESC", "Controls / pause & resume"]]
+	var rows = [["A / D  or  ARROWS", "Move with acceleration and braking inertia"], ["MOUSE / LEFT CLICK", "Aim / fire (rifle auto, pistol semi)"], ["1 / 2  or  Q", "Rifle / pistol / switch weapon"], ["RIGHT CLICK", "Hold ballistic shield (front only)"], ["R / SPACE / SHIFT", "Reload / jump / sprint"], ["M / V / ESC", "Mute / reduced motion / pause"]]
 	for i in range(rows.size()):
 		label_at(Vector2(470, 302 + i * 43), rows[i][0], 14, AMBER)
 		label_at(Vector2(695, 302 + i * 43), rows[i][1], 14, IVORY)
-	label_at(Vector2(470, 622), "Headshots stagger. Short bursts stay accurate.", 16, MUTED)
-	label_at(Vector2(470, 652), "Your shield slows you down and drains stamina.", 16, MUTED)
+	label_at(Vector2(470, 622), "Low skill + automatic fire = climb and wide groups.", 16, MUTED)
+	label_at(Vector2(470, 652), "Semi-auto settles faster. Hits improve weapon skill.", 16, MUTED)
 	label_at(Vector2(470, 707), "[ ESC ]  RETURN TO THE PERIMETER", 14, AMBER)
 
 func draw_end():

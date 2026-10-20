@@ -7,8 +7,25 @@ const HUD = preload("res://scripts/hud.gd")
 const GROUND = 700.0
 const MAGAZINE = 24
 const RELOAD_TIME = 1.65
+const WEAPON_SWITCH_TIME = 0.42
 const WORLD_LEFT = 0.0
 const WORLD_RIGHT = 3300.0
+const WEAPONS = {
+	"rifle": {
+		"name": "AR-07", "caliber": "5.56", "mode": "AUTO", "magazine": 24,
+		"interval": 0.105, "reload": 1.65, "damage": 36.0, "head_damage": 72.0,
+		"recoil": 0.028, "bloom": 0.009, "max_spread": 0.085,
+		"spread_recovery": 0.105, "recoil_recovery": 0.19, "windup": 0.09,
+		"muzzle_distance": 81.0, "auto": true
+	},
+	"pistol": {
+		"name": "P-9", "caliber": "9×19", "mode": "SEMI", "magazine": 15,
+		"interval": 0.22, "reload": 1.25, "damage": 30.0, "head_damage": 60.0,
+		"recoil": 0.017, "bloom": 0.0045, "max_spread": 0.038,
+		"spread_recovery": 0.16, "recoil_recovery": 0.28, "windup": 0.055,
+		"muzzle_distance": 53.0, "auto": false
+	}
+}
 
 var stage: Node2D
 var player: Node2D
@@ -25,10 +42,20 @@ var aim_world = Vector2(1000, 590)
 var health = 100.0
 var stamina = 100.0
 var ammo = MAGAZINE
+var weapon_kind = "rifle"
+var ammo_by_weapon = {"rifle": 24, "pistol": 15}
+var weapon_skill_xp = {"rifle": 0.0, "pistol": 0.0}
 var reload_timer = 0.0
 var fire_timer = 0.0
+var fire_windup = 0.0
+var fire_recovery = 0.0
+var queued_shot = false
+var switch_timer = 0.0
+var trigger_was_down = false
 var invulnerability = 0.0
 var shot_spread = 0.0
+var recoil_pitch = 0.0
+var burst_heat = 0.0
 var shake = 0.0
 var hit_stop = 0.0
 var hit_marker = 0.0
@@ -69,7 +96,7 @@ func _ready():
 	stage.add_child(scenery)
 	player = Actor.new()
 	player.position = Vector2(920, GROUND)
-	player.scale = Vector2(1.6, 1.6)
+	player.scale = Vector2(1.35, 1.35)
 	stage.add_child(player)
 	sound = Sound.new()
 	add_child(sound)
@@ -100,8 +127,16 @@ func start_game():
 	health = 100
 	stamina = 100
 	ammo = MAGAZINE
+	weapon_kind = "rifle"
+	ammo_by_weapon = {"rifle": 24, "pistol": 15}
+	weapon_skill_xp = {"rifle": 0.0, "pistol": 0.0}
 	reload_timer = 0
 	fire_timer = 0
+	fire_windup = 0
+	fire_recovery = 0
+	queued_shot = false
+	switch_timer = 0
+	trigger_was_down = false
 	invulnerability = 0
 	velocity = Vector2.ZERO
 	player.position = Vector2(490, GROUND)
@@ -111,6 +146,10 @@ func start_game():
 	player.shielding = false
 	player.reload_progress = -1
 	player.motion = 0
+	player.weapon_kind = weapon_kind
+	player.weapon_alpha = 1
+	player.weapon_ready = 0
+	player.body_lean = 0
 	camera_x = 0
 	kills = 0
 	shots_fired = 0
@@ -118,6 +157,8 @@ func start_game():
 	blocked_hits = 0
 	elapsed = 0
 	shot_spread = 0
+	recoil_pitch = 0
+	burst_heat = 0
 	coyote = 0
 	jump_buffer = 0
 	foot_timer = 0
@@ -163,6 +204,15 @@ func _unhandled_input(event):
 				sound.enabled = not sound.enabled
 			KEY_V:
 				reduced_motion = not reduced_motion
+			KEY_1:
+				if started and not paused and not game_over:
+					switch_weapon("rifle")
+			KEY_2:
+				if started and not paused and not game_over:
+					switch_weapon("pistol")
+			KEY_Q:
+				if started and not paused and not game_over:
+					switch_weapon("pistol" if weapon_kind == "rifle" else "rifle")
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not started or game_over:
 			if Rect2(88, 625, 290, 54).has_point(get_global_mouse_position()) or game_over:
@@ -207,8 +257,15 @@ func tick(dt: float):
 	elapsed += dt
 	wave_banner = maxf(0, wave_banner - dt)
 	fire_timer = maxf(0, fire_timer - dt)
+	fire_recovery = maxf(0, fire_recovery - dt)
+	switch_timer = maxf(0, switch_timer - dt)
 	invulnerability = maxf(0, invulnerability - dt)
-	shot_spread = move_toward(shot_spread, 0, dt * 0.12)
+	var config = weapon_config()
+	var skill_control = 1.0 + (weapon_skill_level() - 1) * 0.16
+	shot_spread = move_toward(shot_spread, 0, dt * config.spread_recovery * skill_control)
+	recoil_pitch = move_toward(recoil_pitch, 0, dt * config.recoil_recovery * skill_control)
+	burst_heat = move_toward(burst_heat, 0, dt * (2.0 if config.auto else 5.0))
+	player.weapon_alpha = 1.0 - sin(clampf(switch_timer / WEAPON_SWITCH_TIME, 0, 1) * PI) * 0.78
 	# Shield changes locomotion and prevents firing; stamina discourages holding forever.
 	player.shielding = input_shield and stamina > 2 and reload_timer <= 0
 	if player.shielding:
@@ -216,8 +273,15 @@ func tick(dt: float):
 	else:
 		stamina = minf(100, stamina + dt * 19)
 	var speed = 88.0 if player.shielding else (315.0 if input_sprint and not input_fire and reload_timer <= 0 else 210.0)
-	var acceleration = 1750.0 if player.position.y >= GROUND else 850.0
+	var accelerating = absf(input_move) > 0.01
+	var reversing = accelerating and absf(velocity.x) > 15 and signf(input_move) != signf(velocity.x)
+	var acceleration = (1120.0 if reversing else (820.0 if accelerating else 560.0)) if player.position.y >= GROUND else 520.0
 	velocity.x = move_toward(velocity.x, input_move * speed, acceleration * dt)
+	var sprint_lean = 0.17 if speed > 250 and absf(velocity.x) > 90 else 0.09
+	var desired_lean = signf(velocity.x) * player.facing * sprint_lean * clampf(absf(velocity.x) / maxf(speed, 1), 0, 1)
+	if not accelerating and absf(velocity.x) > 25:
+		desired_lean *= -0.55
+	player.body_lean = lerpf(player.body_lean, desired_lean, 1.0 - exp(-dt * 7.0))
 	if player.position.y >= GROUND:
 		coyote = 0.1
 	else:
@@ -250,14 +314,14 @@ func tick(dt: float):
 	if reload_timer > 0:
 		var old_timer = reload_timer
 		reload_timer = maxf(0, reload_timer - dt)
-		player.reload_progress = 1.0 - reload_timer / RELOAD_TIME
+		player.reload_progress = 1.0 - reload_timer / config.reload
 		if old_timer > 0.4 and reload_timer <= 0.4:
 			sound.play("rack")
 		if reload_timer <= 0:
-			ammo = MAGAZINE
+			ammo = config.magazine
+			ammo_by_weapon[weapon_kind] = ammo
 			player.reload_progress = -1
-	if input_fire and fire_timer <= 0 and not player.shielding:
-		fire()
+	update_trigger(dt)
 	update_enemies(dt)
 	if health <= 0:
 		game_over = true
@@ -280,39 +344,109 @@ func update_camera(dt):
 	player.z_index = 4
 
 func begin_reload() -> bool:
-	if reload_timer > 0 or ammo == MAGAZINE or game_over or player.shielding:
+	var config = weapon_config()
+	if reload_timer > 0 or ammo == config.magazine or game_over or player.shielding or switch_timer > 0:
 		return false
-	reload_timer = RELOAD_TIME
+	reload_timer = config.reload
+	fire_windup = 0
+	queued_shot = false
 	player.reload_progress = 0
+	player.weapon_ready = 1
 	sound.play("reload")
 	return true
 
 func muzzle_position() -> Vector2:
-	return player.position + Vector2(0, -104) + Vector2(cos(player.aim) * player.facing, sin(player.aim)) * 81
+	return player.position + Vector2(0, -104) + Vector2(cos(player.aim) * player.facing, sin(player.aim)) * weapon_config().muzzle_distance
 
 func update_aim():
 	var to_aim = aim_world - (player.position + Vector2(0, -104))
 	player.facing = 1.0 if to_aim.x >= 0 else -1.0
-	player.aim = clampf(atan2(to_aim.y, absf(to_aim.x)), -1.2, 1.15)
+	player.aim = clampf(atan2(to_aim.y, absf(to_aim.x)) - recoil_pitch, -1.3, 1.15)
+
+func weapon_config() -> Dictionary:
+	return WEAPONS[weapon_kind]
+
+func weapon_skill_level(kind = weapon_kind) -> int:
+	return mini(5, 1 + int(weapon_skill_xp[kind] / 12.0))
+
+func current_reload_time() -> float:
+	return weapon_config().reload
+
+func current_magazine() -> int:
+	return weapon_config().magazine
+
+func actual_aim_world() -> Vector2:
+	var origin = player.position + Vector2(0, -104)
+	var distance = maxf(80, origin.distance_to(aim_world))
+	return origin + Vector2(cos(player.aim) * player.facing, sin(player.aim)) * distance
+
+func switch_weapon(next_weapon: String) -> bool:
+	if not WEAPONS.has(next_weapon) or next_weapon == weapon_kind or switch_timer > 0 or game_over:
+		return false
+	ammo_by_weapon[weapon_kind] = ammo
+	weapon_kind = next_weapon
+	ammo = ammo_by_weapon[weapon_kind]
+	reload_timer = 0
+	fire_timer = 0
+	fire_windup = 0
+	fire_recovery = 0
+	queued_shot = false
+	trigger_was_down = input_fire
+	shot_spread = 0
+	recoil_pitch = 0
+	burst_heat = 0
+	switch_timer = WEAPON_SWITCH_TIME
+	player.reload_progress = -1
+	player.weapon_kind = weapon_kind
+	player.weapon_ready = 0
+	sound.play("rack", -4, 1.25 if weapon_kind == "pistol" else 0.9)
+	return true
+
+func update_trigger(dt: float):
+	var config = weapon_config()
+	var just_pressed = input_fire and not trigger_was_down
+	var wants_shot = just_pressed if not config.auto else input_fire
+	if just_pressed and not player.shielding and reload_timer <= 0 and switch_timer <= 0:
+		fire_windup = config.windup
+		queued_shot = true
+	if fire_windup > 0:
+		fire_windup = maxf(0, fire_windup - dt)
+		player.weapon_ready = move_toward(player.weapon_ready, 1, dt / maxf(config.windup, 0.01))
+		if fire_windup <= 0 and (queued_shot or wants_shot):
+			fire()
+			queued_shot = false
+	elif wants_shot and config.auto and fire_timer <= 0:
+		fire()
+	var ready_target = 1.0 if input_fire or reload_timer > 0 or fire_recovery > 0 else 0.72
+	player.weapon_ready = move_toward(player.weapon_ready, ready_target, dt * (8.0 if ready_target > player.weapon_ready else 3.5))
+	trigger_was_down = input_fire
 
 func fire() -> bool:
-	if reload_timer > 0 or player.shielding or game_over or fire_timer > 0:
+	if reload_timer > 0 or player.shielding or game_over or fire_timer > 0 or switch_timer > 0:
 		return false
 	if ammo <= 0:
 		begin_reload()
 		return false
 	update_aim()
+	var config = weapon_config()
 	ammo -= 1
+	ammo_by_weapon[weapon_kind] = ammo
 	shots_fired += 1
-	fire_timer = 0.112
+	fire_timer = config.interval
+	fire_recovery = 0.2 if config.auto else 0.28
 	player.recoil = 1
 	player.flash = 0.045
-	shot_spread = minf(shot_spread + 0.007, 0.045)
-	shake = maxf(shake, 2.8)
-	sound.play("shot", 0, rng.randf_range(0.94, 1.06))
+	var skill_penalty = 1.32 - (weapon_skill_level() - 1) * 0.13
+	var sustained_penalty = 1.0 + burst_heat * (0.075 if config.auto else 0.018)
+	recoil_pitch = minf(0.42, recoil_pitch + config.recoil * skill_penalty * sustained_penalty)
+	shot_spread = minf(config.max_spread, shot_spread + config.bloom * skill_penalty * sustained_penalty)
+	burst_heat = minf(8, burst_heat + 1)
+	shake = maxf(shake, 3.1 if config.auto else 2.1)
+	sound.play("shot", 0, rng.randf_range(0.94, 1.06) * (1.12 if weapon_kind == "pistol" else 1.0))
 	var origin = muzzle_position()
 	# Rays originate at the muzzle; close targets cannot be hit through the player's body.
 	var direction = Vector2(cos(player.aim) * player.facing, sin(player.aim)).rotated(rng.randf_range(-shot_spread, shot_spread))
+	burst(origin + direction * 4, 5, Color("ffd487"), 0.11, direction * 80)
 	var endpoint = origin + direction * 1400
 	var best = 1400.0
 	var target = null
@@ -333,8 +467,9 @@ func fire() -> bool:
 					headshot = zone == "head"
 	if target != null:
 		endpoint = origin + direction * best
-		damage_enemy(target, 72 if headshot else 36, headshot, direction)
+		damage_enemy(target, config.head_damage if headshot else config.damage, headshot, direction)
 		hits += 1
+		weapon_skill_xp[weapon_kind] += 2.0 if headshot else 1.0
 		hit_marker = 0.16
 		head_marker = headshot
 		burst(endpoint, 12 if headshot else 7, Color("9a5545"), 0.65, direction * 130 + Vector2(0, -55))

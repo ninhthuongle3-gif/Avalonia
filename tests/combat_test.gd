@@ -36,16 +36,20 @@ func run():
 	game.set_physics_process(false)
 	await process_frame
 	reset()
+	check(game.player.cutout_rig != null and game.player.cutout_rig.bones.size() >= 15, "generated character parts are attached to a Skeleton2D bone hierarchy")
 	game.input_move = 1
 	advance(0.5)
-	check(game.player.position.x > 570 and game.velocity.x == 210, "walk accelerates to configured speed")
+	check(game.player.position.x > 550 and game.velocity.x == 210, "walk accelerates to configured speed")
 	game.input_move = 0
 	advance(0.2)
-	check(absf(game.velocity.x) < 0.1, "release stops movement without sliding")
+	check(game.velocity.x > 60, "release preserves visible braking inertia")
+	advance(0.25)
+	check(absf(game.velocity.x) < 0.1, "braking inertia settles to a full stop")
 	game.input_move = 1
 	game.input_sprint = true
 	advance(0.5)
 	check(game.velocity.x == 315, "sprint is faster than walk")
+	check(absf(game.player.body_lean) > 0.11, "sprinting produces a visible forward body lean")
 	game.input_shield = true
 	advance(0.3)
 	check(game.player.shielding and game.velocity.x == 88, "shield limits sprint and movement speed")
@@ -60,6 +64,14 @@ func run():
 	advance(3)
 	check(game.player.position.x >= 45, "world boundary prevents walking out of map")
 	reset()
+	game.input_fire = true
+	advance(0.02)
+	check(game.shots_fired == 0 and game.fire_windup > 0, "first trigger pull has an anticipation windup")
+	advance(0.10)
+	check(game.shots_fired == 1 and game.fire_recovery > 0, "shot enters a timed recovery follow-through")
+	game.input_fire = false
+	advance(0.02)
+	reset()
 	var enemy = game.spawn_enemy(820, 96, 0)
 	game.aim_world = Vector2(815, 572)
 	check(game.fire(), "loaded rifle fires")
@@ -69,10 +81,12 @@ func run():
 	check(not game.fire() and game.ammo == 23, "fire-rate cooldown prevents duplicate shots")
 	game.fire_timer = 0
 	game.shot_spread = 0
+	game.recoil_pitch = 0
 	game.fire()
 	check(enemy.hp <= 0 and game.kills == 1, "second headshot kills and counts elimination once")
 	check(game.hits == 2 and game.tracers.size() == 2, "hit feedback records both actual ray hits")
 	game.fire_timer = 0
+	game.recoil_pitch = 0
 	game.fire()
 	check(game.kills == 1, "corpse cannot be killed again")
 	reset()
@@ -91,6 +105,33 @@ func run():
 	game.ammo = 0
 	game.fire_timer = 0
 	check(not game.fire() and game.reload_timer > 0, "empty magazine triggers automatic reload")
+	reset()
+	game.aim_world = Vector2(1300, 590)
+	for i in range(4):
+		game.fire_timer = 0
+		game.fire()
+	var novice_rifle_recoil = game.recoil_pitch
+	var novice_rifle_spread = game.shot_spread
+	check(novice_rifle_recoil > 0.14 and novice_rifle_spread > 0.045, "novice automatic burst climbs and widens substantially")
+	reset()
+	game.weapon_skill_xp.rifle = 48
+	for i in range(4):
+		game.fire_timer = 0
+		game.fire()
+	check(game.weapon_skill_level() == 5 and game.recoil_pitch < novice_rifle_recoil, "rifle skill level five reduces vertical recoil")
+	check(game.shot_spread < novice_rifle_spread, "rifle skill level five tightens automatic groups")
+	reset()
+	check(game.switch_weapon("pistol"), "weapon switch accepts pistol slot")
+	check(game.weapon_kind == "pistol" and game.ammo == 15 and game.player.weapon_kind == "pistol", "pistol has independent magazine and visible rig state")
+	check(not game.fire(), "draw animation prevents firing during weapon switch")
+	advance(game.WEAPON_SWITCH_TIME + 0.02)
+	game.aim_world = Vector2(1300, 590)
+	check(game.fire(), "pistol fires after draw animation")
+	check(game.ammo == 14 and game.weapon_config().mode == "SEMI", "pistol is semi-automatic and spends its own ammunition")
+	var pistol_recoil = game.recoil_pitch
+	check(game.switch_weapon("rifle"), "weapon switch returns to rifle")
+	advance(game.WEAPON_SWITCH_TIME + 0.02)
+	check(game.ammo == 24 and pistol_recoil < novice_rifle_recoil / 3.0, "rifle magazine persists and pistol kick is easier to control")
 	reset()
 	game.input_shield = true
 	advance(0.02)

@@ -2,7 +2,7 @@ extends SceneTree
 ## Render a reproducible combat vignette using the actual running game.
 var game
 var frames = 0
-var captured = false
+var captured = {}
 
 func _initialize():
 	call_deferred("begin")
@@ -31,26 +31,37 @@ func _process(_dt):
 	if frames == 45:
 		game.input_fire = false
 		game.begin_reload()
-	if frames == 85:
+	if frames == 150:
 		game.input_shield = true
-	if frames == 160:
+	if frames == 185:
 		game.input_shield = false
-		game.input_move = -1
-	if frames == 190:
-		game.jump_buffer = 0.12
-	if frames == 210:
-		game.input_move = 0
+		game.switch_weapon("pistol")
+	if frames == 215:
 		game.input_fire = true
-	if frames == 20 and not captured:
-		captured = true
-		capture()
-	if frames >= 240:
+	if frames == 223:
+		game.input_fire = false
+		game.input_move = -1
+	if frames == 245:
+		game.jump_buffer = 0.12
+	if frames == 270:
+		game.input_move = 0
+		game.switch_weapon("rifle")
+	if frames == 20:
+		capture("res://artifacts/combat-rifle-v2.png")
+	if frames == 165:
+		capture("res://artifacts/combat-shield-v2.png")
+	if frames == 220:
+		capture("res://artifacts/combat-pistol-v2.png")
+	if frames >= 300:
 		quit()
 	return false
 
-func capture():
+func capture(path: String):
+	if captured.has(path):
+		return
+	captured[path] = true
 	await RenderingServer.frame_post_draw
-	var error = root.get_texture().get_image().save_png("res://artifacts/combat.png")
+	var error = root.get_texture().get_image().save_png(path)
 	if error != OK:
 		push_error("Could not save rendered combat screenshot")
 		quit(1)
