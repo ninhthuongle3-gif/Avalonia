@@ -1,0 +1,9 @@
+.godot/
+exports/
+artifacts/*.log
+artifacts/*.png
+artifacts/*.json
+artifacts/*.avi
+artifacts/*.mp4
+artifacts/*.gif
+artifacts/*.import
