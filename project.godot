@@ -2,10 +2,11 @@
 config_version=5
 
 [application]
-config/name="LAST LIGHT · Quarantine"
+config/name="LAST LIGHT · Quarantine v0.2"
+config/version="0.2.0"
 run/main_scene="res://scenes/range.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
-config/description="Third-person over-the-shoulder live-fire range. Includes the original 2D prototype."
+config/description="Third-person zombie survival with articulated IK locomotion, free movement and aimed shooting."
 
 [display]
 window/size/viewport_width=1440

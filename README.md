@@ -1,46 +1,48 @@
-# LAST LIGHT / 最后灯火 — 第三人称跨肩射击
+# LAST LIGHT / 最后灯火 — v0.2 丧尸跨肩射击
 
-当前默认入口是 **Godot 4.6.3 的 3D 射击靶场**，对应第一阶段的移动、镜头和射击手感验证。无需插件或外部模型下载。原有 2D 原型完整保留在 `main.tscn`。
+Godot 4.6.3 的第三人称射击原型。本版重做移动惯性、30 骨骼角色和支撑脚 IK，加入自由/举枪状态与三波丧尸生存模式。无需插件或外部资源下载。
 
-### 下载试玩
+## 下载试玩
 
-- [Windows 64 位免安装试玩包](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-Windows-x64.zip)：完整解压，保持 EXE 和 PCK 在同一个目录，双击 `LastLight.exe`，按 Enter 开始。
-- [完整 Godot 项目 ZIP](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-Godot-Project.zip)：解压后使用 Godot 4.6.3 导入 `project.godot`。
+- [Windows v0.2 免安装试玩包](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-v0.2-Windows-x64.zip)：完整解压，保持 EXE 和 PCK 在同一个目录，双击 `LastLight.exe`，按 Enter 开始。
+- [v0.2 完整 Godot 项目 ZIP](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/LastLight-v0.2-Godot-Project.zip)：用 Godot 4.6.3 导入 `project.godot`。
 - [SHA-256 校验值](https://github.com/ninhthuongle3-gif/Avalonia/raw/refs/heads/downloads/phase-one/exports/SHA256SUMS.txt)。
 
-Windows 包已经导出，导出的资源包通过 41 项玩法测试；尚未在 Windows 实机试玩。当前内容是程序化占位角色与射击靶场，尚未加入丧尸 AI。
+导出的 Windows PCK 在云端 Godot 中通过 90 项 3D 检查；尚未在 Windows 实机运行。
 
-```sh
-./run.sh                         # 启动新的 3D 靶场，需要图形显示
-./run.sh res://main.tscn         # 启动原有 2D 原型
-./run.sh --headless --script tests/tps_test.gd
-```
+![感染者追击](docs/tps-infected-v2.png)
 
-也可以用 Godot 4.6.3 打开 `project.godot`，按 F5 启动；Enter 进入靶场。
+## 本次更新
 
-![3D 射击靶场](docs/tps-range.png)
+- 脚步由真实位移驱动，世界坐标锁定支撑脚，用髋、膝、踝 IK 减少滑步，撞墙不再原地摆腿。
+- 加速、减速、转向惯性，冲刺前倾、步幅变化、落地缓冲与收步。
+- 真正的 30 骨骼 Skeleton3D，四肢 IK、手指、脊柱、马尾和衣摆，叠加举枪、换弹、后坐力与受伤姿态。
+- 自由状态放低枪、隐藏准星，镜头与角色朝向分离；右键举枪后显示准星并进入慢步瞄准，左键仅在瞄准完成后开火。
+- 丧尸的视野、枪声感知、巡逻、记忆、绕障追击、攻击前摇、受击硬直和死亡。三波生存、生命值、失败重开和通关。
 
 | 操作 | 按键 |
 | --- | --- |
 | 移动 / 冲刺 / 跳跃 | WASD / Shift / Space |
-| 转动视角 / 瞄准 / 全自动射击 | 鼠标移动 / 右键 / 左键 |
-| 左右换肩 / 换弹 | Q / R |
-| 重置训练统计、靶标和弹药 | T |
-| 暂停并释放鼠标 / 恢复 | Esc / Enter 或 Esc |
+| 自由视角 / 举枪瞄准 | 鼠标 / 按住右键 |
+| 瞄准完成后射击 / 换弹 | 左键 / R |
+| 左右换肩 / 重开 | Q / T |
+| 生存模式与六靶训练切换 | F2 |
+| 骨骼关节显示 | F3 |
+| 暂停、释放鼠标 / 恢复 | Esc / Enter 或 Esc |
 | 静音 | M |
 
-第一阶段已实现：
+## 开发
 
-- 带加减速的胶囊体角色移动、冲刺与跳跃，真实掩体和场地碰撞。
-- 平滑左右换肩、瞄准拉近镜头和缩小视野、俯仰限制、后方球体避障和侧向碰撞扫掠。
-- 从准星确定瞄准点，再从真实枪口检测命中；身体到枪口的额外检测阻止穿墙射击。镜头能看到目标时，枪口仍可能被掩体挡住。
-- 24 发全自动步枪、有限备用弹药、换弹、射速限制、镜头后坐力、持续开火扩散和恢复。
-- 六个可复位靶标，其中一个左右移动；身体三枪、头部一枪击倒，附带枪口火焰、曳光、命中闪光与合成音效。
-- 六靶训练目标、计时、命中率、爆头和击倒统计、暂停及失焦自动暂停。
+```sh
+./run.sh
+./run.sh --headless --script tests/tps_test.gd
+./run.sh --headless --script tests/tps_locomotion_test.gd
+./run.sh --headless --script tests/tps_ai_test.gd
+```
 
-角色、动作和场景均为程序化占位内容；当前 3D 靶场没有丧尸 AI、正式美少女角色模型、动画资源、剧情或独立安装包。后续先进行人工手感评估，再进入丧尸战斗阶段。
+当前角色、丧尸和动作都是程序化占位内容，没有正式美少女模型、动捕、剧情、联机或存档。实现、验收、导出与限制见 [v0.2 开发说明](docs/phase-two.md)。
 
-开发与验证细节见 [第一阶段说明](docs/phase-one.md)。
+原有 2D 原型保留在 `main.tscn`，运行 `./run.sh res://main.tscn` 启动。
 
 ---
 

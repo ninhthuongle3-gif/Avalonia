@@ -1,2 +1,4 @@
 045f1679103d0a589f5ea98ad981cebba41a76c2952f6c81ddcaf05389fa94a0  LastLight-Godot-Project.zip
 8deb3aa722b7cdc456a445f9fff62367d082447014e2260f21c1dffec9e8a498  LastLight-Windows-x64.zip
+ead501d831869620cd2dc9885ddabc7fbd6f4fa525d4bfe0d42be4d8a1d92a42  LastLight-v0.2-Godot-Project.zip
+1c061f44ff3aad1bfcf330666807be0106c1f8975a47faa0136ae82ec5757a91  LastLight-v0.2-Windows-x64.zip

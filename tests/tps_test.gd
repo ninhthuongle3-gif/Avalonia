@@ -43,6 +43,9 @@ func aim_at(point: Vector3):
 		await frames(2)
 
 func fire_at(point: Vector3):
+	if not game.player.aiming or game.player.aim_weight < 0.9:
+		mouse(MOUSE_BUTTON_RIGHT, true)
+		await frames(24)
 	game.player.fire_timer = 0.0
 	await aim_at(point)
 	game.player.try_fire(false)
@@ -52,6 +55,7 @@ func run():
 	root.add_child(game)
 	await frames(3)
 	game.sound.enabled = false
+	game.combat_mode = false
 	game.capture_mouse = false
 	var p = game.player
 	check(not game.started and not p.active, "title waits for Enter")
@@ -204,7 +208,7 @@ func run():
 	await frames(3)
 	check(p.ammo == 24 and p.reserve == 144 and p.shots == 0 and game.hits == 0, "T resets drill stats and replenishes ammo")
 	mouse(MOUSE_BUTTON_LEFT, true)
-	await frames(24)
+	await frames(36)
 	mouse(MOUSE_BUTTON_LEFT, false)
 	await frames(2)
 	check(p.shots >= 3 and p.ammo <= 21, "held left mouse fires automatically through input dispatch")

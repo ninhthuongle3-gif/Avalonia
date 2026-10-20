@@ -1,42 +1,52 @@
 extends CharacterBody3D
 const Kit = preload("res://scripts/tps/geometry.gd")
+const Humanoid = preload("res://scripts/tps/humanoid_rig.gd")
 signal fired(result: Dictionary)
 signal reloading
+signal damaged(amount: float)
+signal died
 const MAGAZINE = 24
 const RELOAD_TIME = 1.65
 const FIRE_INTERVAL = 0.115
+const WALK_SPEED = 4.4
+const SPRINT_SPEED = 7.4
+const AIM_SPEED = 2.05
 var active: bool = false
 var aiming: bool = false
 var sprinting: bool = false
 var shoulder: float = 1.0
 var ammo: int = MAGAZINE
 var reserve: int = 144
+var health: float = 100.0
+var hurt_timer: float = 0.0
+var damage_flash: float = 0.0
 var reload_timer: float = 0.0
 var fire_timer: float = 0.0
 var recoil: float = 0.0
 var bloom: float = 0.0
 var yaw: float = 0.0
 var pitch: float = -0.035
+var body_yaw: float = 0.0
 var shots: int = 0
-var walk_phase: float = 0.0
-var rig: Node3D
+var real_speed: float = 0.0
+var real_velocity: Vector3 = Vector3.ZERO
+var locomotion_state: String = "idle"
+var aim_weight: float = 0.0
+var rig
 var pivot: Node3D
 var pitch_pivot: Node3D
 var arm: SpringArm3D
 var camera: Camera3D
 var muzzle: Marker3D
 var muzzle_flash: MeshInstance3D
-var left_leg: Node3D
-var right_leg: Node3D
 var weapon: Node3D
-var gun_rest: Vector3
 var last_result: Dictionary = {}
 var rng = RandomNumberGenerator.new()
 var camera_bounds: SphereShape3D
 
 func _ready():
 	collision_layer = 4
-	collision_mask = 1
+	collision_mask = 3
 	var collision = CollisionShape3D.new()
 	var capsule = CapsuleShape3D.new()
 	capsule.radius = 0.3
@@ -44,7 +54,11 @@ func _ready():
 	collision.shape = capsule
 	collision.position.y = 0.875
 	add_child(collision)
-	build_character()
+	rig = Humanoid.new()
+	add_child(rig)
+	weapon = rig.weapon
+	muzzle = rig.muzzle
+	muzzle_flash = rig.muzzle_flash
 	pivot = Node3D.new()
 	add_child(pivot)
 	pivot.position.y = 1.52
@@ -53,7 +67,7 @@ func _ready():
 	arm = SpringArm3D.new()
 	pitch_pivot.add_child(arm)
 	arm.position.x = 0.62
-	arm.spring_length = 3.0
+	arm.spring_length = 3.2
 	arm.margin = 0.16
 	arm.collision_mask = 1
 	camera_bounds = SphereShape3D.new()
@@ -63,58 +77,12 @@ func _ready():
 	camera = Camera3D.new()
 	arm.add_child(camera)
 	camera.current = true
-	camera.fov = 73
+	camera.fov = 75
 	camera.near = 0.06
 	camera.far = 180.0
 	rng.seed = 151
 	sync_look()
-
-func build_character():
-	rig = Node3D.new()
-	add_child(rig)
-	var coat = Kit.material(Color("244f59"))
-	var dark = Kit.material(Color("172630"))
-	var skin = Kit.material(Color("e8b89c"))
-	var hair = Kit.material(Color("d9d9dc"))
-	var light = Kit.material(Color("64e4cf"), 0.7)
-	Kit.box(rig, Vector3(0, 1.19, 0), Vector3(0.48, 0.52, 0.29), coat)
-	Kit.box(rig, Vector3(0, 0.87, 0), Vector3(0.43, 0.18, 0.27), dark)
-	Kit.box(rig, Vector3(0, 0.96, 0.17), Vector3(0.37, 0.05, 0.06), light)
-	Kit.sphere(rig, Vector3(0, 1.64, 0), 0.205, skin)
-	Kit.sphere(rig, Vector3(0, 1.72, 0.025), 0.218, hair)
-	Kit.box(rig, Vector3(0, 1.58, 0.17), Vector3(0.36, 0.31, 0.12), hair)
-	Kit.box(rig, Vector3(0, 1.34, 0.2), Vector3(0.32, 0.36, 0.14), dark)
-	Kit.box(rig, Vector3(0, 1.4, 0.28), Vector3(0.18, 0.025, 0.01), light)
-	for side in [-1.0, 1.0]:
-		var leg = Node3D.new()
-		rig.add_child(leg)
-		leg.position = Vector3(side * 0.13, 0.85, 0)
-		Kit.box(leg, Vector3(0, -0.3, 0), Vector3(0.18, 0.58, 0.2), dark)
-		Kit.box(leg, Vector3(0, -0.67, -0.04), Vector3(0.19, 0.25, 0.32), dark)
-		Kit.box(leg, Vector3(0, -0.29, -0.11), Vector3(0.19, 0.15, 0.04), coat)
-		if side < 0:
-			left_leg = leg
-		else:
-			right_leg = leg
-	weapon = Node3D.new()
-	rig.add_child(weapon)
-	weapon.position = Vector3(0.27, 1.35, -0.25)
-	gun_rest = weapon.position
-	Kit.box(weapon, Vector3(0, 0, -0.3), Vector3(0.11, 0.15, 0.62), dark)
-	Kit.box(weapon, Vector3(0, 0, -0.7), Vector3(0.055, 0.055, 0.3), Kit.material(Color("60777d")))
-	Kit.box(weapon, Vector3(0, -0.15, -0.27), Vector3(0.09, 0.25, 0.13), dark)
-	Kit.box(weapon, Vector3(0, 0.1, -0.25), Vector3(0.07, 0.065, 0.13), light)
-	# Hands and forearms are placeholders attached to the weapon for reliable grip alignment.
-	Kit.box(weapon, Vector3(0.05, -0.08, 0.09), Vector3(0.14, 0.18, 0.43), coat)
-	Kit.sphere(weapon, Vector3(0.02, -0.05, -0.13), 0.075, skin)
-	Kit.box(weapon, Vector3(-0.25, -0.08, -0.19), Vector3(0.42, 0.13, 0.13), coat)
-	Kit.sphere(weapon, Vector3(-0.04, -0.06, -0.35), 0.07, skin)
-	muzzle = Marker3D.new()
-	weapon.add_child(muzzle)
-	muzzle.position.z = -0.87
-	muzzle_flash = Kit.sphere(muzzle, Vector3(0, 0, -0.04), 0.1, Kit.material(Color("ffe6a0"), 4.0))
-	muzzle_flash.scale = Vector3(0.6, 0.6, 1.9)
-	muzzle_flash.visible = false
+	rig.update_pose(1.0 / 60.0, {"state": "idle", "grounded": true})
 
 func _unhandled_input(event: InputEvent):
 	if not active:
@@ -128,37 +96,91 @@ func _unhandled_input(event: InputEvent):
 		shoulder *= -1.0
 	if event.is_action_pressed("tps_reload"):
 		begin_reload()
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
+		rig.toggle_debug()
 
 func sync_look():
 	pivot.rotation.y = yaw
 	pitch_pivot.rotation.x = pitch + recoil
-	rig.rotation.y = yaw
-	weapon.rotation.x = pitch + recoil * 0.6
 
 func _physics_process(delta: float):
 	if not active:
 		return
 	advance_weapon(delta)
+	hurt_timer = maxf(0.0, hurt_timer - delta)
+	damage_flash = maxf(0.0, damage_flash - delta)
 	aiming = Input.is_action_pressed("tps_aim")
+	aim_weight = move_toward(aim_weight, 1.0 if aiming else 0.0, delta * 5.0)
 	var move = Input.get_vector("tps_left", "tps_right", "tps_forward", "tps_back")
-	sprinting = Input.is_action_pressed("tps_sprint") and move.y < -0.1 and not aiming and reload_timer <= 0.0
+	sprinting = Input.is_action_pressed("tps_sprint") and move.length() > 0.1 and not aiming and reload_timer <= 0.0
 	var direction = Vector3(move.x, 0, move.y).rotated(Vector3.UP, yaw)
-	var speed = 7.0 if sprinting else (2.4 if aiming else 4.2)
-	velocity.x = move_toward(velocity.x, direction.x * speed, delta * 23.0)
-	velocity.z = move_toward(velocity.z, direction.z * speed, delta * 23.0)
+	var speed = SPRINT_SPEED if sprinting else (AIM_SPEED if aiming else WALK_SPEED)
+	var horizontal = Vector2(velocity.x, velocity.z)
+	var acceleration = 8.0 if sprinting else 12.0
+	if move.length() < 0.1:
+		acceleration = 9.0
+	elif horizontal.dot(Vector2(direction.x, direction.z)) < 0:
+		acceleration = 10.0
+	if aiming:
+		acceleration = 16.0
+	if not is_on_floor():
+		acceleration = 2.5
+	horizontal = horizontal.move_toward(Vector2(direction.x, direction.z) * speed, delta * acceleration)
+	velocity.x = horizontal.x
+	velocity.z = horizontal.y
 	if not is_on_floor():
 		velocity.y -= 20.0 * delta
 	else:
 		velocity.y = 0.0
 		if Input.is_action_just_pressed("tps_jump"):
 			velocity.y = 6.0
+	var previous = position
 	move_and_slide()
+	var displacement = position - previous
+	var old_real = real_velocity
+	real_velocity = Vector3(displacement.x, 0, displacement.z) / delta
+	real_speed = real_velocity.length()
 	if position.y < -10.0:
 		position = Vector3(0, 0.1, 7)
 		velocity = Vector3.ZERO
-	arm.position.x = move_toward(arm.position.x, shoulder * (0.5 if aiming else 0.62), delta * 4.0)
-	# Sweep sideways too: the spring arm itself only protects the rearward path.
-	# Without this, changing shoulders next to a wall could place its root inside it.
+	var desired_yaw = body_yaw
+	if aiming:
+		desired_yaw = yaw
+	elif real_speed > 0.08:
+		desired_yaw = atan2(-real_velocity.x, -real_velocity.z)
+	body_yaw = lerp_angle(body_yaw, desired_yaw, 1.0 - exp(-delta * (13.0 if aiming else 8.0)))
+	rig.rotation.y = body_yaw
+	update_camera(delta)
+	locomotion_state = choose_state(move)
+	var reload_progress = 1.0 - reload_timer / RELOAD_TIME if reload_timer > 0 else -1.0
+	rig.update_pose(delta, {"state": locomotion_state, "velocity": real_velocity, "distance": Vector2(displacement.x, displacement.z).length(), "grounded": is_on_floor(), "acceleration": (real_velocity - old_real) / delta, "aim": aim_weight, "sprint": 1.0 if sprinting else 0.0, "pitch": pitch, "aim_yaw": angle_difference(body_yaw, yaw), "recoil": recoil, "reload": reload_progress})
+	sync_look()
+	if Input.is_action_pressed("tps_fire"):
+		try_fire()
+
+func choose_state(move: Vector2) -> String:
+	if health <= 0:
+		return "dead"
+	if damage_flash > 0.15:
+		return "hurt"
+	if not is_on_floor():
+		return "jump" if velocity.y > 0 else "fall"
+	if rig.landing > 0.1:
+		return "land"
+	if reload_timer > 0:
+		return "reload"
+	if aiming:
+		if aim_weight < 0.9:
+			return "aim_raise"
+		return "aim_walk" if real_speed > 0.1 else "aim_idle"
+	if real_speed > 0.1 and move.length() < 0.1:
+		return "brake"
+	if sprinting:
+		return "sprint"
+	return "walk" if real_speed > 0.1 else "idle"
+
+func update_camera(delta: float):
+	arm.position.x = move_toward(arm.position.x, shoulder * (0.52 if aiming else 0.62), delta * 4.0)
 	var sweep = PhysicsShapeQueryParameters3D.new()
 	sweep.shape = camera_bounds
 	sweep.transform = Transform3D(Basis.IDENTITY, pitch_pivot.global_position)
@@ -167,17 +189,37 @@ func _physics_process(delta: float):
 	sweep.exclude = [get_rid()]
 	var travel = get_world_3d().direct_space_state.cast_motion(sweep)
 	arm.position.x *= travel[0]
-	arm.spring_length = move_toward(arm.spring_length, 1.65 if aiming else 3.0, delta * 5.0)
-	camera.fov = move_toward(camera.fov, 53.0 if aiming else (80.0 if sprinting else 73.0), delta * 90.0)
-	walk_phase += Vector2(velocity.x, velocity.z).length() * delta * 2.3
-	var stride = minf(Vector2(velocity.x, velocity.z).length() / 7.0, 1.0) * 0.65
-	left_leg.rotation.x = sin(walk_phase) * stride
-	right_leg.rotation.x = -sin(walk_phase) * stride
-	weapon.position = gun_rest + Vector3(0, -0.16 if reload_timer > 0.0 else 0.0, recoil * 0.65)
-	weapon.rotation.z = -0.5 if reload_timer > 0.0 else 0.0
+	arm.spring_length = move_toward(arm.spring_length, 1.9 if aiming else 3.2, delta * 5.0)
+	camera.fov = move_toward(camera.fov, 53.0 if aiming else (82.0 if sprinting else 75.0), delta * 90.0)
+
+func take_damage(amount: float) -> bool:
+	if health <= 0 or hurt_timer > 0 or not active:
+		return false
+	health = maxf(0.0, health - amount)
+	hurt_timer = 0.65
+	damage_flash = 0.35
+	damaged.emit(amount)
+	if health <= 0:
+		active = false
+		died.emit()
+	return true
+
+func reset_character():
+	health = 100
+	hurt_timer = 0
+	damage_flash = 0
+	position = Vector3(0, 0.05, 7)
+	velocity = Vector3.ZERO
+	real_velocity = Vector3.ZERO
+	real_speed = 0
+	body_yaw = 0
+	yaw = 0
+	pitch = -0.035
+	aiming = false
+	aim_weight = 0
+	rig.aim_blend = 0
+	rig.initialized_feet = false
 	sync_look()
-	if Input.is_action_pressed("tps_fire"):
-		try_fire()
 
 func advance_weapon(delta: float):
 	fire_timer = maxf(0.0, fire_timer - delta)
@@ -217,7 +259,7 @@ func shot_solution(direction: Vector3) -> Dictionary:
 	return {"aim_point": aim_point, "from": start, "point": impact.get("position", aim_point), "impact": impact, "blocked": not obstruction.is_empty() or (not impact.is_empty() and impact.get("collider") != sight_hit.get("collider"))}
 
 func try_fire(spread: bool = true) -> bool:
-	if not active or reload_timer > 0.0 or fire_timer > 0.0 or sprinting:
+	if not active or reload_timer > 0.0 or fire_timer > 0.0 or sprinting or not aiming or aim_weight < 0.9 or real_speed > AIM_SPEED + 0.4:
 		return false
 	if ammo <= 0:
 		begin_reload()
