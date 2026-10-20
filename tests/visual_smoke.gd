@@ -14,11 +14,12 @@ func begin():
 	game.sound.enabled = false
 	game.start_game()
 	game.spawn_left = 0
-	game.spawn_enemy(845, 280, 12)
-	game.spawn_enemy(1040, 130, 29)
-	game.spawn_enemy(1170, 130, 34)
-	game.spawn_enemy(1310, 130, 38)
-	game.aim_world = Vector2(845, 573)
+	game.invulnerability = 999
+	game.spawn_enemy(900, 210, 38, "fast")
+	game.spawn_enemy(1080, 105, 40, "crawler")
+	game.spawn_enemy(1230, 175, 25, "slow")
+	game.spawn_enemy(1410, 115, 65, "runner")
+	game.aim_world = Vector2(900, 573)
 	game.input_move = 1
 	game.input_fire = true
 

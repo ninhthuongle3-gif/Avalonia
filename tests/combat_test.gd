@@ -36,7 +36,15 @@ func run():
 	game.set_physics_process(false)
 	await process_frame
 	reset()
-	check(game.player.cutout_rig != null and game.player.cutout_rig.bones.size() >= 15, "generated character parts are attached to a Skeleton2D bone hierarchy")
+	check(game.player.skeletal_rig != null and game.player.skeletal_rig.bones.size() >= 16, "placeholder body parts are attached to a replaceable Skeleton2D bone hierarchy")
+	check(game.player.skeletal_rig.skin_slots.size() >= 18, "named skin slots can be replaced without changing animation bones")
+	game.player.aim = 0
+	var rifle_socket_span = game.player.weapon_socket_world("Muzzle").distance_to(game.player.weapon_socket_world("EjectPort"))
+	game.switch_weapon("pistol")
+	advance(game.WEAPON_SWITCH_TIME + 0.02)
+	var pistol_socket_span = game.player.weapon_socket_world("Muzzle").distance_to(game.player.weapon_socket_world("EjectPort"))
+	check(rifle_socket_span > pistol_socket_span + 20, "weapon bones provide distinct muzzle and eject-port sockets")
+	reset()
 	game.input_move = 1
 	advance(0.5)
 	check(game.player.position.x > 550 and game.velocity.x == 210, "walk accelerates to configured speed")
@@ -76,6 +84,13 @@ func run():
 	game.aim_world = Vector2(815, 572)
 	check(game.fire(), "loaded rifle fires")
 	check(game.ammo == 23 and game.shots_fired == 1, "firing consumes exactly one round")
+	check(game.tracers[0].from.distance_to(game.muzzle_position()) < 0.5, "bullet ray begins at the animated muzzle socket")
+	check(game.muzzle_flashes.size() == 1, "shot starts a timed muzzle-flash animation")
+	var casing_found = false
+	for particle in game.particles:
+		if particle.kind == "casing":
+			casing_found = true
+	check(casing_found, "shot ejects a tumbling casing from the weapon socket")
 	check(enemy.hp == 24 and game.head_marker, "head hit deals critical damage")
 	check(enemy.stun > 0 and enemy.push > 0, "bullet causes stagger and knockback")
 	check(not game.fire() and game.ammo == 23, "fire-rate cooldown prevents duplicate shots")
@@ -133,6 +148,29 @@ func run():
 	advance(game.WEAPON_SWITCH_TIME + 0.02)
 	check(game.ammo == 24 and pistol_recoil < novice_rifle_recoil / 3.0, "rifle magazine persists and pistol kick is easier to control")
 	reset()
+	var effect_kinds = {"metal": "spark", "concrete": "dust", "wood": "splinter", "glass": "shard"}
+	for material in effect_kinds:
+		game.material_impact(material, Vector2(900, 500), Vector2.RIGHT)
+		check(game.last_impact_material == material and game.particles[-1].kind == effect_kinds[material], "%s impact creates its own particles and feedback" % material)
+		game.particles.clear()
+		game.impacts.clear()
+	check(game.ray_rect_entry(Vector2(500, 650), Vector2.RIGHT, Rect2(620, 608, 221, 76), 1400) == 120, "world props expose material-aware bullet surfaces")
+	reset()
+	var slow = game.spawn_zombie(760, "slow")
+	var fast = game.spawn_zombie(860, "fast")
+	var runner = game.spawn_zombie(960, "runner")
+	var crawler = game.spawn_zombie(1060, "crawler")
+	check(slow.speed < fast.speed and fast.speed < runner.speed, "slow, fast, and runner zombies have distinct movement speeds")
+	check(crawler.actor.zombie_kind == "crawler" and crawler.actor.hit_profile().head_offset.y > runner.actor.hit_profile().head_offset.y + 50, "crawler uses a low silhouette and matching hit zones")
+	check(runner.windup_time < fast.windup_time and fast.windup_time < slow.windup_time, "faster zombie types have sharper attack timing")
+	var phases = []
+	for creature in [slow, fast, runner, crawler]:
+		creature.actor.motion = creature.speed
+		var old_phase = creature.actor.phase
+		creature.actor._process(0.25)
+		phases.append(creature.actor.phase - old_phase)
+	check(phases[0] < phases[1] and phases[1] < phases[2], "zombie types animate at distinct gait rates")
+	reset()
 	game.input_shield = true
 	advance(0.02)
 	game.player.facing = 1
@@ -145,8 +183,9 @@ func run():
 	check(game.health == 84 and game.damage_flash > 0, "unblocked damage triggers health loss and feedback")
 	check(not game.take_damage(16, game.player.position - Vector2(60, 0)) and game.health == 84, "damage grace period prevents overlapping instant hits")
 	reset()
-	game.spawn_enemy(game.player.position.x + 60, 100, 0)
-	advance(0.55)
+	var attacker = game.spawn_enemy(game.player.position.x + 60, 100, 0)
+	attacker.cooldown = 0
+	advance(0.35)
 	check(game.health == 100, "zombie attack is telegraphed before damage")
 	advance(0.4)
 	check(game.health == 84, "completed zombie attack damages player")

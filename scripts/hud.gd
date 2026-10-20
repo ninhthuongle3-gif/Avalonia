@@ -69,7 +69,7 @@ func draw_menu():
 	label_at(Vector2(88, 756), "A / D  MOVE       MOUSE  AIM       LMB  FIRE", 13, MUTED)
 	label_at(Vector2(88, 783), "RMB  SHIELD       1 / 2  WEAPON       R  RELOAD", 13, MUTED)
 	label_at(Vector2(88, 842), "01 / FIELD TEST", 12, AMBER)
-	label_at(Vector2(1060, 842), "GODOT 4  /  GENERATED CUTOUT ART", 12, MUTED)
+	label_at(Vector2(1082, 842), "GODOT 4  /  MODULAR BONE RIG", 12, MUTED)
 	# Right-side diegetic field annotation.
 	line(Vector2(1054, 543), Vector2(1098, 510), AMBER)
 	line(Vector2(1098, 510), Vector2(1310, 510), AMBER)

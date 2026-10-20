@@ -90,6 +90,8 @@ func _draw():
 	# Abandoned ambulance and wrecked compact car.
 	car(620, true)
 	car(2240, false)
+	wood_crate(1080)
+	concrete_block(1920)
 	for x in [40, 980, 1800, 2660, 3180]:
 		barricade(x)
 	draw_rect(Rect2(-1500, 700, 7000, 250), Color("19292d"))
@@ -124,6 +126,21 @@ func barricade(x):
 	for i in range(4):
 		polygon([Vector2(x + 14 + i * 23, 657), Vector2(x + 25 + i * 23, 657), Vector2(x + 17 + i * 23, 669), Vector2(x + 6 + i * 23, 669)], Color("273333"))
 	draw_line(Vector2(x + 17, 678), Vector2(x + 86, 678), Color("777b66"), 2)
+
+func wood_crate(x):
+	draw_rect(Rect2(x, 618, 76, 82), Color("76583d"))
+	draw_rect(Rect2(x + 6, 624, 64, 70), Color("9a744c"), false, 5)
+	draw_line(Vector2(x + 9, 628), Vector2(x + 67, 690), Color("5e432f"), 5)
+	draw_line(Vector2(x + 67, 628), Vector2(x + 9, 690), Color("5e432f"), 5)
+	for offset in [10, 65]:
+		draw_circle(Vector2(x + offset, 628), 2, Color("c39a62"))
+		draw_circle(Vector2(x + offset, 689), 2, Color("c39a62"))
+
+func concrete_block(x):
+	polygon([Vector2(x, 700), Vector2(x + 7, 632), Vector2(x + 18, 623), Vector2(x + 104, 623), Vector2(x + 116, 700)], Color("68716d"))
+	draw_line(Vector2(x + 14, 637), Vector2(x + 105, 637), Color("8b9288"), 3)
+	draw_line(Vector2(x + 24, 669), Vector2(x + 92, 669), Color("4a5452"), 2)
+	draw_line(Vector2(x + 49, 624), Vector2(x + 43, 699), Color(0.18, 0.23, 0.23, 0.45), 2)
 
 func car(x, ambulance):
 	var base = Color("6b7163") if ambulance else Color("3f5154")

@@ -26,6 +26,22 @@ const WEAPONS = {
 		"muzzle_distance": 53.0, "auto": false
 	}
 }
+const ZOMBIE_TYPES = {
+	"slow": {"hp": 125.0, "speed": 32.0, "damage": 16.0, "range": 67.0, "windup": 0.62, "cooldown": 1.2, "label": "SHAMBLER"},
+	"fast": {"hp": 92.0, "speed": 67.0, "damage": 14.0, "range": 65.0, "windup": 0.42, "cooldown": 0.9, "label": "STALKER"},
+	"runner": {"hp": 74.0, "speed": 126.0, "damage": 12.0, "range": 72.0, "windup": 0.29, "cooldown": 0.78, "label": "RUNNER"},
+	"crawler": {"hp": 68.0, "speed": 58.0, "damage": 10.0, "range": 55.0, "windup": 0.36, "cooldown": 0.82, "label": "CRAWLER"}
+}
+# These rectangles correspond to visible props in environment.gd. They are
+# intentionally off the normal torso-height firing lane unless the player aims.
+const MATERIAL_SURFACES = [
+	{"rect": Rect2(620, 608, 221, 76), "material": "metal"},
+	{"rect": Rect2(1080, 618, 76, 82), "material": "wood"},
+	{"rect": Rect2(1190, 390, 270, 44), "material": "metal"},
+	{"rect": Rect2(1540, 467, 200, 130), "material": "glass"},
+	{"rect": Rect2(1920, 623, 116, 77), "material": "concrete"},
+	{"rect": Rect2(2240, 608, 221, 76), "material": "metal"}
+]
 
 var stage: Node2D
 var player: Node2D
@@ -36,6 +52,8 @@ var enemies: Array = []
 var particles: Array = []
 var tracers: Array = []
 var impacts: Array = []
+var muzzle_flashes: Array = []
+var last_impact_material = ""
 var velocity = Vector2.ZERO
 var camera_x = 0.0
 var aim_world = Vector2(1000, 590)
@@ -171,6 +189,8 @@ func start_game():
 	particles.clear()
 	tracers.clear()
 	impacts.clear()
+	muzzle_flashes.clear()
+	last_impact_material = ""
 	wave = 1
 	begin_wave()
 
@@ -356,7 +376,10 @@ func begin_reload() -> bool:
 	return true
 
 func muzzle_position() -> Vector2:
-	return player.position + Vector2(0, -104) + Vector2(cos(player.aim) * player.facing, sin(player.aim)) * weapon_config().muzzle_distance
+	return player.weapon_socket_world("Muzzle")
+
+func casing_position() -> Vector2:
+	return player.weapon_socket_world("EjectPort")
 
 func update_aim():
 	var to_aim = aim_world - (player.position + Vector2(0, -104))
@@ -376,7 +399,7 @@ func current_magazine() -> int:
 	return weapon_config().magazine
 
 func actual_aim_world() -> Vector2:
-	var origin = player.position + Vector2(0, -104)
+	var origin = muzzle_position()
 	var distance = maxf(80, origin.distance_to(aim_world))
 	return origin + Vector2(cos(player.aim) * player.facing, sin(player.aim)) * distance
 
@@ -421,6 +444,46 @@ func update_trigger(dt: float):
 	player.weapon_ready = move_toward(player.weapon_ready, ready_target, dt * (8.0 if ready_target > player.weapon_ready else 3.5))
 	trigger_was_down = input_fire
 
+func ray_rect_entry(origin: Vector2, direction: Vector2, rect: Rect2, max_distance: float) -> float:
+	var minimum = 0.0
+	var maximum = max_distance
+	for axis in range(2):
+		var component = direction[axis]
+		var start = origin[axis]
+		var low = rect.position[axis]
+		var high = rect.end[axis]
+		if absf(component) < 0.00001:
+			if start < low or start > high:
+				return -1.0
+			continue
+		var first = (low - start) / component
+		var second = (high - start) / component
+		if first > second:
+			var swap = first
+			first = second
+			second = swap
+		minimum = maxf(minimum, first)
+		maximum = minf(maximum, second)
+		if maximum < minimum:
+			return -1.0
+	return minimum if minimum <= max_distance else -1.0
+
+func material_impact(material: String, point: Vector2, direction: Vector2):
+	last_impact_material = material
+	var effect = {
+		"metal": {"color": Color("ffd06d"), "count": 11, "sound": "impact_metal", "kind": "spark"},
+		"concrete": {"color": Color("a4aaa1"), "count": 13, "sound": "impact_concrete", "kind": "dust"},
+		"wood": {"color": Color("b58b55"), "count": 12, "sound": "impact_wood", "kind": "splinter"},
+		"glass": {"color": Color("b9d7d7"), "count": 15, "sound": "impact_glass", "kind": "shard"}
+	}.get(material, {"color": Color("b4b0a1"), "count": 7, "sound": "hit", "kind": "dust"})
+	for i in range(effect.count):
+		var life = rng.randf_range(0.24, 0.62)
+		var reflected = (-direction).rotated(rng.randf_range(-1.05, 1.05))
+		var speed = rng.randf_range(80, 285) if material == "metal" else rng.randf_range(45, 180)
+		particles.append({"pos": point, "vel": reflected * speed + Vector2(0, rng.randf_range(-90, 20)), "life": life, "max": life, "color": effect.color, "size": rng.randf_range(1.2, 3.2), "kind": effect.kind, "rotation": rng.randf_range(0, TAU), "angular": rng.randf_range(-12, 12), "bounces": 0})
+	impacts.append({"pos": point, "life": 5.0, "max": 5.0, "text": "", "head": false, "material": material})
+	sound.play(effect.sound, -3, rng.randf_range(0.9, 1.12))
+
 func fire() -> bool:
 	if reload_timer > 0 or player.shielding or game_over or fire_timer > 0 or switch_timer > 0:
 		return false
@@ -444,19 +507,22 @@ func fire() -> bool:
 	shake = maxf(shake, 3.1 if config.auto else 2.1)
 	sound.play("shot", 0, rng.randf_range(0.94, 1.06) * (1.12 if weapon_kind == "pistol" else 1.0))
 	var origin = muzzle_position()
-	# Rays originate at the muzzle; close targets cannot be hit through the player's body.
 	var direction = Vector2(cos(player.aim) * player.facing, sin(player.aim)).rotated(rng.randf_range(-shot_spread, shot_spread))
-	burst(origin + direction * 4, 5, Color("ffd487"), 0.11, direction * 80)
+	muzzle_flashes.append({"pos": origin, "direction": direction, "life": 0.075, "max": 0.075, "seed": rng.randf_range(0, TAU), "size": 1.15 if weapon_kind == "rifle" else 0.82})
+	burst(origin + direction * 3, 6, Color("ffd487"), 0.13, direction * 95, "spark")
+	burst(origin - direction * 2, 3, Color(0.72, 0.75, 0.69, 0.35), 0.38, -direction * 12 + Vector2(0, -24), "smoke")
 	var endpoint = origin + direction * 1400
 	var best = 1400.0
 	var target = null
 	var headshot = false
+	var hit_material = ""
 	for enemy in enemies:
 		if enemy.hp <= 0:
 			continue
+		var profile = enemy.actor.hit_profile()
 		for zone in ["body", "head"]:
-			var center = enemy.actor.position + Vector2(5 * enemy.actor.facing, -88 if zone == "body" else -128)
-			var radius = 28.0 if zone == "body" else 17.0
+			var center = enemy.actor.position + profile[zone + "_offset"]
+			var radius = profile[zone + "_radius"]
 			var along = (center - origin).dot(direction)
 			var perpendicular_sq = (center - origin).length_squared() - along * along
 			if perpendicular_sq <= radius * radius:
@@ -465,6 +531,14 @@ func fire() -> bool:
 					best = entry
 					target = enemy
 					headshot = zone == "head"
+					hit_material = ""
+	for surface in MATERIAL_SURFACES:
+		var entry = ray_rect_entry(origin, direction, surface.rect, 1400.0)
+		if entry >= 0 and entry < best:
+			best = entry
+			target = null
+			headshot = false
+			hit_material = surface.material
 	if target != null:
 		endpoint = origin + direction * best
 		damage_enemy(target, config.head_damage if headshot else config.damage, headshot, direction)
@@ -472,26 +546,47 @@ func fire() -> bool:
 		weapon_skill_xp[weapon_kind] += 2.0 if headshot else 1.0
 		hit_marker = 0.16
 		head_marker = headshot
-		burst(endpoint, 12 if headshot else 7, Color("9a5545"), 0.65, direction * 130 + Vector2(0, -55))
-		impacts.append({"pos": endpoint, "life": 0.35, "text": "CRITICAL" if headshot else "", "head": headshot})
+		burst(endpoint, 12 if headshot else 7, Color("9a5545"), 0.65, direction * 130 + Vector2(0, -55), "blood")
+		impacts.append({"pos": endpoint, "life": 0.35, "max": 0.35, "text": "CRITICAL" if headshot else "", "head": headshot, "material": "flesh"})
+	elif not hit_material.is_empty():
+		endpoint = origin + direction * best
+		material_impact(hit_material, endpoint, direction)
 	else:
-		burst(endpoint, 4, Color("c0b28c"), 0.3, -direction * 35)
+		burst(endpoint, 4, Color("c0b28c"), 0.3, -direction * 35, "dust")
 	tracers.append({"from": origin, "to": endpoint, "life": 0.065})
-	# Brass exits the receiver, has gravity, bounces once, and fades.
-	particles.append({"pos": origin - direction * 54, "vel": Vector2(-player.facing * rng.randf_range(50, 110), -rng.randf_range(130, 220)), "life": 1.6, "max": 1.6, "color": Color("d1ad61"), "size": 3.0, "brass": true})
+	# The casing begins at the animated weapon's EjectPort socket and tumbles.
+	particles.append({"pos": casing_position(), "vel": Vector2(-player.facing * rng.randf_range(55, 120), -rng.randf_range(145, 230)), "life": 1.85, "max": 1.85, "color": Color("d1ad61"), "size": 3.0, "kind": "casing", "rotation": rng.randf_range(0, TAU), "angular": rng.randf_range(-18, 18), "bounces": 2})
 	return true
 
-func spawn_enemy(x: float, hp = 100.0, speed = 42.0):
+func spawn_enemy(x: float, hp = 100.0, speed = 42.0, kind = "slow"):
+	if not ZOMBIE_TYPES.has(kind):
+		kind = "slow"
+	var type_config = ZOMBIE_TYPES[kind]
 	var actor = Actor.new()
 	actor.zombie = true
+	actor.zombie_kind = kind
 	actor.variant = rng.randi_range(0, 2)
 	actor.position = Vector2(x, GROUND)
 	actor.phase = rng.randf_range(0, TAU)
-	actor.z_index = 3
+	actor.z_index = 2 if kind == "crawler" else 3
 	stage.add_child(actor)
-	var enemy = {"actor": actor, "hp": hp, "speed": speed, "stun": 0.0, "push": 0.0, "cooldown": 0.4, "windup": -1.0, "corpse": 0.0}
+	var enemy = {"actor": actor, "kind": kind, "hp": hp, "speed": speed, "damage": type_config.damage, "attack_range": type_config.range, "windup_time": type_config.windup, "cooldown_time": type_config.cooldown, "stun": 0.0, "push": 0.0, "cooldown": rng.randf_range(0.25, 0.7), "windup": -1.0, "corpse": 0.0}
 	enemies.append(enemy)
 	return enemy
+
+func spawn_zombie(x: float, kind: String):
+	var config = ZOMBIE_TYPES[kind]
+	var wave_health = config.hp * (1.0 + maxf(0, wave - 1) * 0.055)
+	var wave_speed = config.speed * (1.0 + minf(0.28, maxf(0, wave - 1) * 0.018))
+	return spawn_enemy(x, wave_health, wave_speed, kind)
+
+func choose_zombie_kind() -> String:
+	var roll = rng.randf()
+	if wave <= 1:
+		return "slow" if roll < 0.46 else ("fast" if roll < 0.74 else ("crawler" if roll < 0.9 else "runner"))
+	if wave <= 3:
+		return "slow" if roll < 0.28 else ("fast" if roll < 0.57 else ("crawler" if roll < 0.76 else "runner"))
+	return "slow" if roll < 0.18 else ("fast" if roll < 0.43 else ("crawler" if roll < 0.62 else "runner"))
 
 func damage_enemy(enemy: Dictionary, damage: float, headshot: bool, direction: Vector2):
 	enemy.hp -= damage
@@ -536,15 +631,15 @@ func update_enemies(dt):
 			continue
 		if e.windup >= 0:
 			e.windup += dt
-			actor.attack = sin(clampf(e.windup / 0.48, 0, 1) * PI)
-			if e.windup >= 0.48:
-				if distance < 83 and player.position.y > GROUND - 90:
-					take_damage(16, actor.position)
+			actor.attack = sin(clampf(e.windup / e.windup_time, 0, 1) * PI)
+			if e.windup >= e.windup_time:
+				if distance < e.attack_range + 15 and player.position.y > GROUND - 90:
+					take_damage(e.damage, actor.position)
 				e.windup = -1
-				e.cooldown = 1.0
-		elif distance < 68 and e.cooldown <= 0:
+				e.cooldown = e.cooldown_time
+		elif distance < e.attack_range and e.cooldown <= 0:
 			e.windup = 0
-		elif distance > 54:
+		elif distance > e.attack_range - 10:
 			var move = actor.facing * e.speed
 			actor.position.x += move * dt
 			actor.motion = move
@@ -553,8 +648,9 @@ func update_enemies(dt):
 			if other == e or other.hp <= 0:
 				continue
 			var dx = actor.position.x - other.actor.position.x
-			if absf(dx) < 24 and absf(dx) > 0.01:
-				actor.position.x += signf(dx) * dt * 12
+			var spacing = 31.0 if e.kind == "crawler" or other.kind == "crawler" else 24.0
+			if absf(dx) < spacing and absf(dx) > 0.01:
+				actor.position.x += signf(dx) * dt * (18 if e.kind == "runner" else 12)
 
 func take_damage(amount: float, source: Vector2) -> bool:
 	if invulnerability > 0 or game_over:
@@ -585,7 +681,7 @@ func update_waves(dt):
 			var right = rng.randf() > 0.18 or wave == 1
 			var x = camera_x + 1530 if right else camera_x - 90
 			x = clampf(x, -100, WORLD_RIGHT + 100)
-			spawn_enemy(x, 90 + wave * 6, rng.randf_range(36, 51) + wave * 3)
+			spawn_zombie(x, choose_zombie_kind())
 			spawn_left -= 1
 			spawn_timer = maxf(0.6, 2.0 - wave * 0.1) + rng.randf_range(0, 0.6)
 	elif living_enemies() == 0:
@@ -602,23 +698,36 @@ func living_enemies() -> int:
 			count += 1
 	return count
 
-func burst(pos: Vector2, count: int, color: Color, lifetime: float, impulse: Vector2):
+func burst(pos: Vector2, count: int, color: Color, lifetime: float, impulse: Vector2, kind = "dust"):
 	for i in range(count):
 		var life = lifetime * rng.randf_range(0.5, 1.2)
-		particles.append({"pos": pos, "vel": impulse + Vector2(rng.randf_range(-95, 95), rng.randf_range(-100, 30)), "life": life, "max": life, "color": color, "size": rng.randf_range(1.3, 3.2), "brass": false})
+		particles.append({"pos": pos, "vel": impulse + Vector2(rng.randf_range(-95, 95), rng.randf_range(-100, 30)), "life": life, "max": life, "color": color, "size": rng.randf_range(1.3, 3.2), "kind": kind, "rotation": rng.randf_range(0, TAU), "angular": rng.randf_range(-10, 10), "bounces": 0})
 
 func update_effects(dt):
 	for i in range(particles.size() - 1, -1, -1):
 		var p = particles[i]
 		p.life -= dt
-		p.vel.y += dt * (800 if p.brass else 370)
+		var gravity = 830.0 if p.kind == "casing" else (-14.0 if p.kind == "smoke" else 430.0)
+		p.vel.y += dt * gravity
 		p.pos += p.vel * dt
+		p.rotation += p.angular * dt
 		if p.pos.y > GROUND:
 			p.pos.y = GROUND
-			p.vel.y = -absf(p.vel.y) * 0.25
-			p.vel.x *= 0.65
+			if p.kind == "casing" and p.bounces > 0:
+				p.vel.y = -absf(p.vel.y) * 0.34
+				p.vel.x *= 0.72
+				p.angular *= 0.72
+				p.bounces -= 1
+				sound.play("casing", -12, rng.randf_range(0.9, 1.25))
+			else:
+				p.vel = Vector2.ZERO
+				p.angular = 0
 		if p.life <= 0:
 			particles.remove_at(i)
+	for i in range(muzzle_flashes.size() - 1, -1, -1):
+		muzzle_flashes[i].life -= dt
+		if muzzle_flashes[i].life <= 0:
+			muzzle_flashes.remove_at(i)
 	for i in range(tracers.size() - 1, -1, -1):
 		tracers[i].life -= dt
 		if tracers[i].life <= 0:
@@ -639,11 +748,46 @@ func _draw():
 		draw_line(trace.from, trace.from.lerp(trace.to, 0.18), Color(1, 0.96, 0.8, trace.life / 0.065), 3, true)
 	for p in particles:
 		var color = p.color
-		color.a = clampf(p.life / p.max * 2, 0, 1)
-		if p.brass:
-			draw_line(p.pos, p.pos + Vector2(3, 1).rotated(p.life * 17), color, 2, true)
-		else:
-			draw_circle(p.pos, p.size, color)
+		color.a *= clampf(p.life / p.max * 2, 0, 1)
+		match p.kind:
+			"casing":
+				var along = Vector2(5.0, 0).rotated(p.rotation)
+				var across = Vector2(0, 1.5).rotated(p.rotation)
+				draw_colored_polygon(PackedVector2Array([p.pos - along - across, p.pos + along - across, p.pos + along + across, p.pos - along + across]), color)
+				draw_line(p.pos - along, p.pos - along + across * 2, Color("f3d68a", color.a), 1.2, true)
+			"spark":
+				draw_line(p.pos, p.pos - p.vel.normalized() * (5 + p.size * 2), color, maxf(1.0, p.size * 0.65), true)
+			"splinter", "shard":
+				draw_line(p.pos - Vector2(p.size * 1.8, 0).rotated(p.rotation), p.pos + Vector2(p.size * 1.8, 0).rotated(p.rotation), color, 1.5, true)
+			"smoke":
+				draw_circle(p.pos, p.size * (1.0 + (p.max - p.life) * 4.0), color)
+			_:
+				draw_circle(p.pos, p.size, color)
+	for flash in muzzle_flashes:
+		var progress = 1.0 - flash.life / flash.max
+		var length = 39.0 * flash.size * (1.0 - progress * 0.55)
+		var width = 15.0 * flash.size * (1.0 - progress)
+		var direction: Vector2 = flash.direction
+		var normal = direction.orthogonal()
+		var center = flash.pos + direction * length * 0.3
+		var outer = PackedVector2Array([
+			flash.pos - normal * width * 0.25,
+			center + normal * width,
+			flash.pos + direction * length,
+			center - normal * width
+		])
+		draw_colored_polygon(outer, Color(1.0, 0.52, 0.16, flash.life / flash.max))
+		draw_circle(flash.pos + direction * length * 0.24, maxf(1.0, width * 0.46), Color(1.0, 0.95, 0.66, flash.life / flash.max))
+	for impact in impacts:
+		if impact.material == "flesh":
+			continue
+		var fade = clampf(impact.life / impact.max, 0, 1)
+		var mark_color = {"metal": Color("273136"), "concrete": Color("353b3b"), "wood": Color("513b29"), "glass": Color("98b4b5")}.get(impact.material, Color("333333"))
+		mark_color.a = minf(1.0, fade * 1.5)
+		draw_circle(impact.pos, 3.5, mark_color)
+		if impact.material == "glass":
+			for angle in [0.1, 1.7, 3.0, 4.5]:
+				draw_line(impact.pos, impact.pos + Vector2.from_angle(angle) * 9, mark_color, 1)
 	draw_set_transform(Vector2.ZERO)
 
 func draw_ellipse_shadow(pos: Vector2, radius: float, color: Color):
